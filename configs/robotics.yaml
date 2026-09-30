@@ -1,0 +1,8 @@
+defaults: base.yaml
+robotics:
+  middleware: none
+  coordinate_frame: world
+  safety_margin_m: 0.1
+  isaac_integration: false
+  ros_integration: false
+  status: planned

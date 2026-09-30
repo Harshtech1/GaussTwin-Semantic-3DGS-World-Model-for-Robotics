@@ -1,0 +1,18 @@
+defaults: base.yaml
+runtime:
+  device: cuda
+  expected_gpu_count: 2
+  backend: kaggle
+  mixed_precision: fp16
+  multi_gpu_mode: explicit_distributed
+  memory:
+    per_gpu_batch_size: 1
+    gradient_accumulation_steps: 1
+    max_reserved_fraction: 0.85
+    empty_cache_between_stages: false
+data:
+  working_root: /kaggle/working/gausstwin
+paths:
+  outputs: /kaggle/working/gausstwin/outputs
+  checkpoints: /kaggle/working/gausstwin/outputs/checkpoints
+  renders: /kaggle/working/gausstwin/outputs/renders

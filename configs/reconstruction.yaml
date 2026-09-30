@@ -1,0 +1,6 @@
+defaults: base.yaml
+reconstruction:
+  backend: colmap
+  camera_model: OPENCV
+  use_depth: false
+  status: planned

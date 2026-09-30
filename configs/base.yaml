@@ -1,0 +1,15 @@
+project:
+  name: GaussTwin
+  seed: 42
+runtime:
+  device: auto
+  expected_gpu_count: 2
+  backend: kaggle
+paths:
+  data_root: data
+  raw: data/raw
+  processed: data/processed
+  outputs: outputs
+  checkpoints: outputs/checkpoints
+logging:
+  level: INFO

@@ -1,0 +1,6 @@
+defaults: base.yaml
+semantics:
+  feature_backend: open_vocabulary
+  feature_dimension: null
+  fusion_strategy: null
+  status: planned
