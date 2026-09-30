@@ -16,3 +16,17 @@ paths:
   outputs: /kaggle/working/gausstwin/outputs
   checkpoints: /kaggle/working/gausstwin/outputs/checkpoints
   renders: /kaggle/working/gausstwin/outputs/renders
+python:
+  version: "3.12"
+pytorch:
+  version: "2.10.0+cu128"
+cuda:
+  runtime: "12.8"
+  toolkit: "12.8"
+gsplat:
+  version: "1.5.3"
+hardware:
+  gpu_count: 2
+  gpu_memory_gib: 14.56
+  gpu_0: "Tesla T4"
+  gpu_1: "Tesla T4"

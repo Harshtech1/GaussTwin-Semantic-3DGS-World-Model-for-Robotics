@@ -1,0 +1,23 @@
+{
+  "experiment_id": "baseline/000_gsplat_environment",
+  "git_commit": "784b78b",
+  "platform": "Kaggle",
+  "python": "3.12.13",
+  "pytorch": "2.10.0+cu128",
+  "pytorch_cuda_runtime": "12.8",
+  "cuda_toolkit": "12.8",
+  "cuda_toolkit_build": "V12.8.93",
+  "gcc": "11.4.0",
+  "ninja": "1.13.0",
+  "gsplat": "1.5.3",
+  "cuda_available": true,
+  "hardware": {
+    "gpu_count": 2,
+    "devices": [
+      {"index": 0, "name": "Tesla T4", "memory_gib": 14.56},
+      {"index": 1, "name": "Tesla T4", "memory_gib": 14.56}
+    ],
+    "memory_model": "per-device; not a pooled 29.12 GiB CUDA device"
+  },
+  "execution_model": "one GPU at a time; multi-GPU is future work"
+}

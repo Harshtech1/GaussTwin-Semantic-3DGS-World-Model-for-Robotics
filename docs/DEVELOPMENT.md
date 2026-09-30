@@ -17,4 +17,24 @@ python -m unittest discover -s tests -v
 git status
 ```
 
-Commit focused changes and push them to GitHub. Kaggle must pull the same commit before a GPU experiment. Do not install `requirements/kaggle-gpu.txt` in Lightning.
+## Source synchronization
+
+```text
+Lightning
+  ↓
+Codex edits
+  ↓
+git commit
+  ↓
+git push
+  ↓
+GitHub
+  ↓
+git pull
+  ↓
+Kaggle
+  ↓
+GPU execution
+```
+
+Commit focused changes and push them to GitHub. Kaggle must pull the same commit before a GPU experiment. Do not install `requirements/kaggle-gpu.txt`, gsplat, or CUDA-specific packages in Lightning.

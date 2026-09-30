@@ -24,6 +24,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["runtime"]["mixed_precision"], "fp16")
         self.assertEqual(config["runtime"]["memory"]["per_gpu_batch_size"], 1)
         self.assertIn("checkpoints", config["paths"])
+        self.assertEqual(config["python"]["version"], "3.12")
+        self.assertEqual(config["pytorch"]["version"], "2.10.0+cu128")
+        self.assertEqual(config["cuda"]["runtime"], "12.8")
+        self.assertEqual(config["gsplat"]["version"], "1.5.3")
+        self.assertEqual(config["hardware"]["gpu_count"], 2)
+        self.assertEqual(config["hardware"]["gpu_memory_gib"], 14.56)
 
     def test_invalid_device_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
