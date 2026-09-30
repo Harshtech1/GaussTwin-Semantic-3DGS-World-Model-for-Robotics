@@ -1,4 +1,6 @@
 # Install only in the Kaggle GPU runtime. Match PyTorch to Kaggle's CUDA image.
 -r base.txt
 gsplat==1.5.3
+# Lightweight image decoding and PNG output for COLMAP training views.
+Pillow>=10,<12
 # torch is supplied by Kaggle; do not blindly replace its CUDA-matched build.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train the GaussTwin-001 single-GPU COLMAP-to-gsplat baseline."""
+"""Validate a COLMAP-style scene without requiring COLMAP to be installed."""
 
 from __future__ import annotations
 
@@ -8,15 +8,12 @@ import argparse
 import _bootstrap  # noqa: F401
 from gausstwin.config import load_config
 from gausstwin.reconstruction.dataset import load_colmap_scene
-from gausstwin.reconstruction.trainer import ThreeDGSTrainer, load_checkpoint
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="configs/reconstruction.yaml")
-    parser.add_argument("--scene-root")
-    parser.add_argument("--device", default=None, help="One CUDA device, default from config (cuda:0)")
-    parser.add_argument("--resume", default=None, help="Optional checkpoint to restore before training")
+    parser.add_argument("--scene-root", required=False)
     args = parser.parse_args()
     config = load_config(args.config)
     reconstruction = config["reconstruction"]
@@ -24,14 +21,15 @@ def main() -> int:
     if not scene_root:
         parser.error("set reconstruction.scene_root or provide --scene-root")
     scene = load_colmap_scene(scene_root, reconstruction["sparse_dir"], reconstruction["images_dir"])
-    trainer = ThreeDGSTrainer(scene, config, device=args.device)
-    if args.resume:
-        restored = load_checkpoint(args.resume, trainer.gaussians, trainer.optimizer)
-        print(f"Restored checkpoint iteration {restored['iteration']}: {args.resume}")
-    summary = trainer.train()
-    print("Training complete")
-    for key, value in summary.items():
-        print(f"{key}: {value}")
+    missing_images = [view.image_name for view in scene.views if not scene.image_path(view).is_file()]
+    print(f"Scene root: {scene.root}")
+    print(f"Cameras: {len(scene.model.cameras)}")
+    print(f"Images: {len(scene.views)}")
+    print(f"Sparse points: {len(scene.points)}")
+    print(f"Missing image files: {len(missing_images)}")
+    if missing_images:
+        print("First missing image:", missing_images[0])
+        return 1
     return 0
 
 

@@ -1,0 +1,10 @@
+defaults: ../../../configs/reconstruction.yaml
+reconstruction:
+  scene_root: /kaggle/input/<your-colmap-scene>
+training:
+  device: cuda:0
+outputs:
+  experiment_name: 001_3dgs
+  checkpoints: /kaggle/working/gausstwin/outputs/checkpoints/001_3dgs
+  renders: /kaggle/working/gausstwin/outputs/renders/001_3dgs
+  metrics: /kaggle/working/gausstwin/outputs/metrics/001_3dgs

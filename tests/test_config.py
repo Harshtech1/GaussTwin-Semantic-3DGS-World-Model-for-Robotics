@@ -41,6 +41,13 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(path)
 
+    def test_reconstruction_baseline_defaults(self):
+        config = load_config(ROOT / "configs/reconstruction.yaml")
+        self.assertEqual(config["reconstruction"]["image_resolution"], 640)
+        self.assertEqual(config["reconstruction"]["max_points"], 100000)
+        self.assertEqual(config["training"]["device"], "cuda:0")
+        self.assertEqual(config["training"]["iterations"], 3000)
+
 
 if __name__ == "__main__":
     unittest.main()
