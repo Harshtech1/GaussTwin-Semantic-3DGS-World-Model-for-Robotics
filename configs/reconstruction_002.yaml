@@ -1,0 +1,26 @@
+defaults: reconstruction.yaml
+training:
+  device: cuda:0
+  seed: 42
+  iterations: 3000
+  checkpoint_interval: 250
+  validation_views: 4
+refinement:
+  warmup_iterations: 500
+  interval: 250
+  min_observations: 5
+  gradient_threshold: 0.0002
+  max_candidates: 256
+  max_candidate_fraction: 0.01
+  max_gaussian_count: 60000
+  min_gaussian_count: 30000
+  split_scale_threshold: 0.02
+  split_scale_factor: 0.8
+  split_jitter_factor: 0.5
+  duplicate_jitter_factor: 0.25
+  prune_opacity_threshold: 0.005
+outputs:
+  experiment_name: 002_adaptive_3dgs
+  checkpoints: outputs/checkpoints/002_adaptive_3dgs
+  renders: outputs/renders/002_adaptive_3dgs
+  metrics: outputs/metrics/002_adaptive_3dgs

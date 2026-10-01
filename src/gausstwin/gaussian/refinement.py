@@ -1,0 +1,125 @@
+"""Gradient-aware, conservative adaptive Gaussian refinement for GaussTwin-002."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import torch
+
+from .adaptive import AdaptiveGaussianParameters, MutationResult
+
+
+@dataclass(frozen=True)
+class CandidateSelection:
+    split_indices: torch.Tensor
+    duplicate_indices: torch.Tensor
+    prune_indices: torch.Tensor
+
+
+class RefinementStatistics:
+    """Mean screen-space gradient and visibility count per Gaussian."""
+
+    def __init__(self, count: int, device: str | torch.device) -> None:
+        self.gradient_sum = torch.zeros(count, dtype=torch.float32, device=device)
+        self.observations = torch.zeros(count, dtype=torch.long, device=device)
+
+    @property
+    def count(self) -> int:
+        return len(self.gradient_sum)
+
+    def mean_gradient(self) -> torch.Tensor:
+        return self.gradient_sum / self.observations.clamp_min(1)
+
+    def accumulate(self, meta: dict[str, Any]) -> None:
+        """Accumulate ``meta['means2d'].absgrad`` only where metadata reports visibility."""
+        means2d = meta.get("means2d")
+        if means2d is None or getattr(means2d, "absgrad", None) is None:
+            raise RuntimeError("gsplat metadata must provide means2d.absgrad with absgrad=True")
+        radii = meta.get("radii")
+        if radii is None:
+            raise RuntimeError("gsplat metadata must provide radii for visibility accounting")
+        gradients = means2d.absgrad.norm(dim=-1).reshape(-1, self.count)
+        visible = (radii.reshape(-1, self.count) > 0)
+        self.gradient_sum += (gradients * visible).sum(dim=0)
+        self.observations += visible.sum(dim=0).to(self.observations.dtype)
+
+    def reset(self, count: int | None = None) -> None:
+        count = self.count if count is None else count
+        self.gradient_sum = torch.zeros(count, dtype=torch.float32, device=self.gradient_sum.device)
+        self.observations = torch.zeros(count, dtype=torch.long, device=self.observations.device)
+
+
+def pruning_mask(
+    opacities: torch.Tensor, observations: torch.Tensor, *, opacity_threshold: float, min_observations: int
+) -> torch.Tensor:
+    return (opacities < opacity_threshold) & (observations >= min_observations)
+
+
+def select_candidates(
+    gaussians: AdaptiveGaussianParameters,
+    statistics: RefinementStatistics,
+    settings: dict[str, Any],
+) -> CandidateSelection:
+    """Select bounded candidates using normalized gradients and conservative pruning."""
+    if gaussians.count != statistics.count:
+        raise ValueError("Gaussian/statistics count mismatch")
+    device = gaussians.means.device
+    scores = statistics.mean_gradient()
+    observations = statistics.observations
+    minimum = int(settings["min_gaussian_count"])
+    raw_prune = pruning_mask(
+        gaussians.opacities().detach(),
+        observations,
+        opacity_threshold=float(settings["prune_opacity_threshold"]),
+        min_observations=int(settings["min_observations"]),
+    )
+    prune_order = torch.argsort(gaussians.opacities().detach(), stable=True)
+    selected_prune: list[int] = []
+    for index in prune_order.tolist():
+        if raw_prune[index] and gaussians.count - len(selected_prune) > minimum:
+            selected_prune.append(index)
+    prune_indices = torch.tensor(selected_prune, dtype=torch.long, device=device)
+
+    eligible = (scores >= float(settings["gradient_threshold"])) & (
+        observations >= int(settings["min_observations"])
+    )
+    eligible[prune_indices] = False
+    ranked = torch.argsort(scores, descending=True, stable=True)
+    candidate_limit = min(
+        int(settings["max_candidates"]),
+        max(1, int(gaussians.count * float(settings["max_candidate_fraction"]))),
+    )
+    available_growth = max(0, int(settings["max_gaussian_count"]) - (gaussians.count - len(prune_indices)))
+    split: list[int] = []
+    duplicate: list[int] = []
+    scale_threshold = float(settings["split_scale_threshold"])
+    for index in ranked.tolist():
+        if not eligible[index] or len(split) + len(duplicate) >= candidate_limit or available_growth <= 0:
+            continue
+        if gaussians.scales().detach()[index].mean() >= scale_threshold:
+            split.append(index)
+        else:
+            duplicate.append(index)
+        available_growth -= 1  # Both operations add one net Gaussian.
+    return CandidateSelection(
+        split_indices=torch.tensor(split, dtype=torch.long, device=device),
+        duplicate_indices=torch.tensor(duplicate, dtype=torch.long, device=device),
+        prune_indices=prune_indices,
+    )
+
+
+def refine(
+    gaussians: AdaptiveGaussianParameters, statistics: RefinementStatistics, settings: dict[str, Any], seed: int
+) -> tuple[MutationResult, CandidateSelection]:
+    selection = select_candidates(gaussians, statistics, settings)
+    result = gaussians.mutate(
+        selection.split_indices,
+        selection.duplicate_indices,
+        selection.prune_indices,
+        seed=seed,
+        split_scale_factor=float(settings["split_scale_factor"]),
+        split_jitter_factor=float(settings["split_jitter_factor"]),
+        duplicate_jitter_factor=float(settings["duplicate_jitter_factor"]),
+    )
+    return result, selection

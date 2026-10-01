@@ -48,6 +48,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["training"]["device"], "cuda:0")
         self.assertEqual(config["training"]["iterations"], 3000)
 
+    def test_adaptive_reconstruction_defaults(self):
+        config = load_config(ROOT / "configs/reconstruction_002.yaml")
+        self.assertEqual(config["training"]["device"], "cuda:0")
+        self.assertEqual(config["refinement"]["warmup_iterations"], 500)
+        self.assertEqual(config["refinement"]["max_gaussian_count"], 60000)
+
 
 if __name__ == "__main__":
     unittest.main()

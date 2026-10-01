@@ -16,3 +16,9 @@ The protocol is:
 4. Preserve the final metrics JSON, selected renders, checkpoint, resolved config, Git commit, GPU name, peak VRAM, duration, Gaussian count, and validation PSNR/SSIM.
 
 PSNR and a lightweight differentiable SSIM are implemented with PyTorch. LPIPS is deliberately not included: it requires an additional learned metric dependency and is reported as unavailable until it is separately approved.
+
+## GaussTwin-002: adaptive 3DGS baseline
+
+GaussTwin-001 is retained as the historical fixed-Gaussian baseline. On Gerrard Hall it plateaued at low quality despite local scale initialization because its 43,188 primitives could not grow in high-error areas. GaussTwin-002 keeps the same local COLMAP initialization and gsplat renderer but adds a conservative adaptive representation: screen-space gradients from `meta["means2d"].absgrad` are accumulated only for metadata-visible Gaussians, normalized by observation count, and used at fixed intervals to split or duplicate a bounded candidate set.
+
+The 002 protocol remains single-GPU (`cuda:0` by default), `packed=False`, and reproducible. It warms up before refinement, caps growth at 60,000 Gaussians, protects a 30,000-Gaussian minimum, rebuilds Adam after each structural event, emits append-only per-iteration trajectories, and writes unique `evaluation_iter_*.json` files at each checkpoint. No GaussTwin-002 result should be compared with 001 without recording the full manifest and count trajectory.

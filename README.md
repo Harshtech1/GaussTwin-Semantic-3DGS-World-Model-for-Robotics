@@ -2,7 +2,7 @@
 
 GaussTwin is a research scaffold for a semantic 3D Gaussian world model for robotics. It is designed to connect camera reconstruction, 3D Gaussian splatting, open-vocabulary semantics, scene graphs, spatial queries, and robot-aware digital twins.
 
-> **Project status:** GaussTwin-001 implements a small, reproducible COLMAP-to-gsplat baseline reconstruction stage for Kaggle. Semantic fusion, VLMs, scene graphs, robotics integration, and dynamic/4D Gaussian modeling remain future work.
+> **Project status:** GaussTwin-001 is the completed fixed-Gaussian historical reconstruction baseline. GaussTwin-002 adds a conservative, single-GPU adaptive Gaussian baseline. Semantic fusion, VLMs, scene graphs, robotics integration, and dynamic/4D Gaussian modeling remain future work.
 
 ## Compute model
 
