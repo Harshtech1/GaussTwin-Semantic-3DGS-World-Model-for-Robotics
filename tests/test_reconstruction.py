@@ -7,6 +7,7 @@ import tempfile
 import types
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 import torch
 
@@ -108,6 +109,27 @@ class ReconstructionTests(unittest.TestCase):
             metadata = load_checkpoint(path, restored)
             self.assertEqual(metadata["iteration"], 3)
             self.assertTrue(torch.allclose(restored.means, means))
+
+    def test_local_gaussian_scales_are_finite_positive_and_density_aware(self):
+        dense = [(0.00, 0.00, 0.00), (0.01, 0.00, 0.00), (0.00, 0.01, 0.00), (0.00, 0.00, 0.01)]
+        sparse = [(10.0, 0.0, 0.0), (11.0, 0.0, 0.0), (10.0, 1.0, 0.0), (10.0, 0.0, 1.0)]
+        points = [SimpleNamespace(xyz=xyz, rgb=(128, 128, 128)) for xyz in dense + sparse]
+        gaussians = GaussianParameters.from_sparse_points(
+            points, device="cpu", max_points=10, initial_scale=None, initial_opacity=0.1
+        )
+        scales = gaussians.scales()[:, 0]
+        self.assertTrue(torch.isfinite(scales).all())
+        self.assertTrue((scales > 0).all())
+        self.assertLess(scales[:4].median(), scales[4:].median())
+
+    def test_duplicate_coordinates_do_not_create_zero_or_invalid_scales(self):
+        points = [SimpleNamespace(xyz=(0.0, 0.0, 0.0), rgb=(255, 0, 0)) for _ in range(4)]
+        gaussians = GaussianParameters.from_sparse_points(
+            points, device="cpu", max_points=10, initial_scale=None, initial_opacity=0.1
+        )
+        scales = gaussians.scales()
+        self.assertTrue(torch.isfinite(scales).all())
+        self.assertTrue((scales > 0).all())
 
     def test_renderer_interface_with_mocked_gsplat(self):
         gaussians = GaussianParameters(
