@@ -65,18 +65,18 @@ class AdaptiveRefinementTests(unittest.TestCase):
         statistics = RefinementStatistics(3, "cpu")
         means2d = SimpleNamespace(absgrad=torch.tensor([[[3.0, 4.0], [6.0, 8.0], [5.0, 12.0]]]))
         means2d.shape = torch.Size((1, 3, 2))
-        statistics.accumulate({"means2d": means2d, "radii": torch.tensor([[1.0, 0.0, 2.0]])})
-        statistics.accumulate({"means2d": means2d, "radii": torch.tensor([[1.0, 1.0, 0.0]])})
+        statistics.accumulate({"means2d": means2d, "radii": torch.tensor([[[1.0, 1.0], [0.0, 1.0], [2.0, 2.0]]])})
+        statistics.accumulate({"means2d": means2d, "radii": torch.tensor([[[1.0, 1.0], [1.0, 1.0], [1.0, 0.0]]])})
         self.assertTrue(torch.equal(statistics.observations, torch.tensor([2, 1, 1])))
         self.assertTrue(torch.allclose(statistics.mean_gradient(), torch.tensor([5.0, 10.0, 13.0])))
 
     def test_nonpacked_metadata_shapes_count_one_view_slot(self):
         means2d = SimpleNamespace(absgrad=torch.ones((1, 4, 2)))
         means2d.shape = torch.Size((1, 4, 2))
-        metadata = {"means2d": means2d, "radii": torch.tensor([[1.0, 0.0, 2.0, 3.0]])}
+        metadata = {"means2d": means2d, "radii": torch.tensor([[[1.0, 1.0], [0.0, 1.0], [2.0, 2.0], [3.0, 3.0]]])}
         diagnostics = inspect_rasterization_metadata(metadata, 4)
         self.assertEqual(diagnostics.means2d_shape, (1, 4, 2))
-        self.assertEqual(diagnostics.radii_shape, (1, 4))
+        self.assertEqual(diagnostics.radii_shape, (1, 4, 2))
         self.assertEqual(diagnostics.observation_slots, 1)
         statistics = RefinementStatistics(4, "cpu")
         for _ in range(50):
@@ -87,7 +87,17 @@ class AdaptiveRefinementTests(unittest.TestCase):
         means2d = SimpleNamespace(absgrad=torch.ones((1, 3, 2)))
         means2d.shape = torch.Size((1, 3, 2))
         with self.assertRaises(ValueError):
-            inspect_rasterization_metadata({"means2d": means2d, "radii": torch.ones((1, 3))}, 4)
+            inspect_rasterization_metadata({"means2d": means2d, "radii": torch.ones((1, 3, 2))}, 4)
+
+    def test_two_camera_slots_and_forward_metadata_without_absgrad(self):
+        means2d = SimpleNamespace()
+        means2d.shape = torch.Size((2, 3, 2))
+        metadata = {"means2d": means2d, "radii": torch.ones((2, 3, 2))}
+        diagnostics = inspect_rasterization_metadata(metadata, 3)
+        self.assertEqual(diagnostics.observation_slots, 2)
+        self.assertIsNone(diagnostics.absgrad_shape)
+        with self.assertRaises(RuntimeError):
+            RefinementStatistics(3, "cpu").accumulate(metadata)
 
     def test_candidate_ranking_requires_gradient_and_observations(self):
         gaussians = _gaussians()
