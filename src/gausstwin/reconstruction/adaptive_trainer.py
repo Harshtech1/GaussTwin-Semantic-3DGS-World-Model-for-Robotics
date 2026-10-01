@@ -174,6 +174,7 @@ class AdaptiveThreeDGSTrainer:
                     "resulting_gaussian_count": result.resulting_count,
                     "split_count": len(selection.split_indices),
                     "duplicate_count": len(selection.duplicate_indices),
+                    **selection.diagnostics.as_dict(),
                 }
             self.peak_memory_bytes = max(self.peak_memory_bytes, torch.cuda.max_memory_allocated(self.device))
             entry = {

@@ -14,7 +14,13 @@ sys.path.insert(0, str(ROOT / "src"))
 from gausstwin.gaussian.adaptive import AdaptiveGaussianParameters
 from gausstwin.gaussian.optimizer import build_optimizer
 from gausstwin.gaussian.parameters import GaussianParameters
-from gausstwin.gaussian.refinement import RefinementStatistics, pruning_mask, refine, select_candidates
+from gausstwin.gaussian.refinement import (
+    RefinementStatistics,
+    compute_refinement_diagnostics,
+    pruning_mask,
+    refine,
+    select_candidates,
+)
 from gausstwin.gaussian.trajectory import TrajectoryLogger
 from gausstwin.reconstruction.adaptive_trainer import (
     ADAPTIVE_CHECKPOINT_SCHEMA_VERSION,
@@ -71,6 +77,29 @@ class AdaptiveRefinementTests(unittest.TestCase):
         self.assertEqual(selection.split_indices.tolist(), [0])
         self.assertEqual(selection.duplicate_indices.tolist(), [1])
         self.assertEqual(selection.prune_indices.tolist(), [])
+        self.assertEqual(selection.diagnostics.eligible_count, 2)
+        self.assertEqual(selection.diagnostics.candidate_limit, 4)
+
+    def test_refinement_diagnostics_percentiles_and_empty_safety(self):
+        diagnostics = compute_refinement_diagnostics(
+            torch.tensor([0.0, 1.0, 2.0, 3.0]),
+            torch.tensor([0, 2, 4, 6]),
+            eligible_count=3,
+            candidate_limit=2,
+        )
+        self.assertEqual(diagnostics.gradient_min, 0.0)
+        self.assertEqual(diagnostics.gradient_p50, 1.5)
+        self.assertAlmostEqual(diagnostics.gradient_p90, 2.7, places=5)
+        self.assertEqual(diagnostics.gradient_max, 3.0)
+        self.assertEqual(diagnostics.observation_min, 0)
+        self.assertEqual(diagnostics.observation_p50, 3.0)
+        self.assertEqual(diagnostics.observation_max, 6)
+        self.assertEqual(diagnostics.eligible_count, 3)
+        empty = compute_refinement_diagnostics(
+            torch.tensor([]), torch.tensor([], dtype=torch.long), eligible_count=0, candidate_limit=0
+        )
+        self.assertIsNone(empty.gradient_p50)
+        self.assertIsNone(empty.observation_p90)
 
     def test_deterministic_split_and_duplicate_and_count_change(self):
         first, second = _gaussians(), _gaussians()

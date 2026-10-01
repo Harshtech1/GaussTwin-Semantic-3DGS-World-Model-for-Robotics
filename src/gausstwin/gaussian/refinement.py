@@ -15,6 +15,39 @@ class CandidateSelection:
     split_indices: torch.Tensor
     duplicate_indices: torch.Tensor
     prune_indices: torch.Tensor
+    diagnostics: "RefinementDiagnostics"
+
+
+@dataclass(frozen=True)
+class RefinementDiagnostics:
+    gradient_min: float | None
+    gradient_p50: float | None
+    gradient_p90: float | None
+    gradient_p95: float | None
+    gradient_p99: float | None
+    gradient_max: float | None
+    observation_min: int | None
+    observation_p50: float | None
+    observation_p90: float | None
+    observation_max: int | None
+    eligible_count: int
+    candidate_limit: int
+
+    def as_dict(self) -> dict[str, float | int | None]:
+        return {
+            "gradient_min": self.gradient_min,
+            "gradient_p50": self.gradient_p50,
+            "gradient_p90": self.gradient_p90,
+            "gradient_p95": self.gradient_p95,
+            "gradient_p99": self.gradient_p99,
+            "gradient_max": self.gradient_max,
+            "observation_min": self.observation_min,
+            "observation_p50": self.observation_p50,
+            "observation_p90": self.observation_p90,
+            "observation_max": self.observation_max,
+            "eligible_count": self.eligible_count,
+            "candidate_limit": self.candidate_limit,
+        }
 
 
 class RefinementStatistics:
@@ -56,6 +89,41 @@ def pruning_mask(
     return (opacities < opacity_threshold) & (observations >= min_observations)
 
 
+def compute_refinement_diagnostics(
+    gradients: torch.Tensor,
+    observations: torch.Tensor,
+    *,
+    eligible_count: int,
+    candidate_limit: int,
+) -> RefinementDiagnostics:
+    """Summarize selection inputs without modifying the selection decision."""
+    if len(gradients) != len(observations):
+        raise ValueError("gradient/observation count mismatch")
+    if not len(gradients):
+        return RefinementDiagnostics(
+            gradient_min=None, gradient_p50=None, gradient_p90=None, gradient_p95=None,
+            gradient_p99=None, gradient_max=None, observation_min=None, observation_p50=None,
+            observation_p90=None, observation_max=None, eligible_count=eligible_count,
+            candidate_limit=candidate_limit,
+        )
+    gradient_values = gradients.detach().float()
+    observation_values = observations.detach().float()
+    return RefinementDiagnostics(
+        gradient_min=float(gradient_values.min()),
+        gradient_p50=float(torch.quantile(gradient_values, 0.50)),
+        gradient_p90=float(torch.quantile(gradient_values, 0.90)),
+        gradient_p95=float(torch.quantile(gradient_values, 0.95)),
+        gradient_p99=float(torch.quantile(gradient_values, 0.99)),
+        gradient_max=float(gradient_values.max()),
+        observation_min=int(observations.min()),
+        observation_p50=float(torch.quantile(observation_values, 0.50)),
+        observation_p90=float(torch.quantile(observation_values, 0.90)),
+        observation_max=int(observations.max()),
+        eligible_count=eligible_count,
+        candidate_limit=candidate_limit,
+    )
+
+
 def select_candidates(
     gaussians: AdaptiveGaussianParameters,
     statistics: RefinementStatistics,
@@ -90,6 +158,12 @@ def select_candidates(
         int(settings["max_candidates"]),
         max(1, int(gaussians.count * float(settings["max_candidate_fraction"]))),
     )
+    diagnostics = compute_refinement_diagnostics(
+        scores,
+        observations,
+        eligible_count=int(eligible.sum()),
+        candidate_limit=candidate_limit,
+    )
     available_growth = max(0, int(settings["max_gaussian_count"]) - (gaussians.count - len(prune_indices)))
     split: list[int] = []
     duplicate: list[int] = []
@@ -106,6 +180,7 @@ def select_candidates(
         split_indices=torch.tensor(split, dtype=torch.long, device=device),
         duplicate_indices=torch.tensor(duplicate, dtype=torch.long, device=device),
         prune_indices=prune_indices,
+        diagnostics=diagnostics,
     )
 
 
