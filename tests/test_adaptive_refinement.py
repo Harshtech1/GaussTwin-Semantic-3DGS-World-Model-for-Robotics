@@ -17,6 +17,7 @@ from gausstwin.gaussian.parameters import GaussianParameters
 from gausstwin.gaussian.refinement import (
     RefinementStatistics,
     compute_refinement_diagnostics,
+    inspect_rasterization_metadata,
     pruning_mask,
     refine,
     select_candidates,
@@ -63,10 +64,30 @@ class AdaptiveRefinementTests(unittest.TestCase):
     def test_gradient_accumulation_and_visibility_observations(self):
         statistics = RefinementStatistics(3, "cpu")
         means2d = SimpleNamespace(absgrad=torch.tensor([[[3.0, 4.0], [6.0, 8.0], [5.0, 12.0]]]))
+        means2d.shape = torch.Size((1, 3, 2))
         statistics.accumulate({"means2d": means2d, "radii": torch.tensor([[1.0, 0.0, 2.0]])})
         statistics.accumulate({"means2d": means2d, "radii": torch.tensor([[1.0, 1.0, 0.0]])})
         self.assertTrue(torch.equal(statistics.observations, torch.tensor([2, 1, 1])))
         self.assertTrue(torch.allclose(statistics.mean_gradient(), torch.tensor([5.0, 10.0, 13.0])))
+
+    def test_nonpacked_metadata_shapes_count_one_view_slot(self):
+        means2d = SimpleNamespace(absgrad=torch.ones((1, 4, 2)))
+        means2d.shape = torch.Size((1, 4, 2))
+        metadata = {"means2d": means2d, "radii": torch.tensor([[1.0, 0.0, 2.0, 3.0]])}
+        diagnostics = inspect_rasterization_metadata(metadata, 4)
+        self.assertEqual(diagnostics.means2d_shape, (1, 4, 2))
+        self.assertEqual(diagnostics.radii_shape, (1, 4))
+        self.assertEqual(diagnostics.observation_slots, 1)
+        statistics = RefinementStatistics(4, "cpu")
+        for _ in range(50):
+            statistics.accumulate(metadata)
+        self.assertEqual(statistics.observations.max().item(), 50)
+
+    def test_metadata_shape_mismatch_is_reported(self):
+        means2d = SimpleNamespace(absgrad=torch.ones((1, 3, 2)))
+        means2d.shape = torch.Size((1, 3, 2))
+        with self.assertRaises(ValueError):
+            inspect_rasterization_metadata({"means2d": means2d, "radii": torch.ones((1, 3))}, 4)
 
     def test_candidate_ranking_requires_gradient_and_observations(self):
         gaussians = _gaussians()

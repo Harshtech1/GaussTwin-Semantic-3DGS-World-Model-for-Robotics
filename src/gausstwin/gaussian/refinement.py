@@ -50,12 +50,31 @@ class RefinementDiagnostics:
         }
 
 
+@dataclass(frozen=True)
+class RasterizationMetadataDiagnostics:
+    """Read-only shape audit for gsplat's non-packed refinement metadata."""
+
+    means2d_shape: tuple[int, ...]
+    absgrad_shape: tuple[int, ...]
+    radii_shape: tuple[int, ...]
+    observation_slots: int
+
+    def as_dict(self) -> dict[str, int | list[int]]:
+        return {
+            "means2d_shape": list(self.means2d_shape),
+            "means2d_absgrad_shape": list(self.absgrad_shape),
+            "radii_shape": list(self.radii_shape),
+            "observation_slots": self.observation_slots,
+        }
+
+
 class RefinementStatistics:
     """Mean screen-space gradient and visibility count per Gaussian."""
 
     def __init__(self, count: int, device: str | torch.device) -> None:
         self.gradient_sum = torch.zeros(count, dtype=torch.float32, device=device)
         self.observations = torch.zeros(count, dtype=torch.long, device=device)
+        self.last_metadata_diagnostics: RasterizationMetadataDiagnostics | None = None
 
     @property
     def count(self) -> int:
@@ -66,12 +85,9 @@ class RefinementStatistics:
 
     def accumulate(self, meta: dict[str, Any]) -> None:
         """Accumulate ``meta['means2d'].absgrad`` only where metadata reports visibility."""
-        means2d = meta.get("means2d")
-        if means2d is None or getattr(means2d, "absgrad", None) is None:
-            raise RuntimeError("gsplat metadata must provide means2d.absgrad with absgrad=True")
-        radii = meta.get("radii")
-        if radii is None:
-            raise RuntimeError("gsplat metadata must provide radii for visibility accounting")
+        self.last_metadata_diagnostics = inspect_rasterization_metadata(meta, self.count)
+        means2d = meta["means2d"]
+        radii = meta["radii"]
         gradients = means2d.absgrad.norm(dim=-1).reshape(-1, self.count)
         visible = (radii.reshape(-1, self.count) > 0)
         self.gradient_sum += (gradients * visible).sum(dim=0)
@@ -81,6 +97,32 @@ class RefinementStatistics:
         count = self.count if count is None else count
         self.gradient_sum = torch.zeros(count, dtype=torch.float32, device=self.gradient_sum.device)
         self.observations = torch.zeros(count, dtype=torch.long, device=self.observations.device)
+
+
+def inspect_rasterization_metadata(
+    meta: dict[str, Any], gaussian_count: int
+) -> RasterizationMetadataDiagnostics:
+    """Validate and describe gsplat non-packed metadata without changing accounting."""
+    means2d = meta.get("means2d")
+    if means2d is None or getattr(means2d, "absgrad", None) is None:
+        raise RuntimeError("gsplat metadata must provide means2d.absgrad with absgrad=True")
+    radii = meta.get("radii")
+    if radii is None:
+        raise RuntimeError("gsplat metadata must provide radii for visibility accounting")
+    if means2d.shape[-2:] != (gaussian_count, 2):
+        raise ValueError(
+            f"expected non-packed means2d shape [..., {gaussian_count}, 2], got {tuple(means2d.shape)}"
+        )
+    if means2d.absgrad.shape != means2d.shape:
+        raise ValueError("means2d.absgrad shape must match means2d")
+    if radii.shape != means2d.shape[:-1]:
+        raise ValueError("radii shape must equal means2d.shape[:-1] in non-packed mode")
+    return RasterizationMetadataDiagnostics(
+        means2d_shape=tuple(means2d.shape),
+        absgrad_shape=tuple(means2d.absgrad.shape),
+        radii_shape=tuple(radii.shape),
+        observation_slots=radii.numel() // gaussian_count,
+    )
 
 
 def pruning_mask(
