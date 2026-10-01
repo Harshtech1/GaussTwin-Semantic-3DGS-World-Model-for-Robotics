@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import shutil
 import struct
 import sys
 import tempfile
@@ -15,8 +17,49 @@ from gausstwin.gaussian.optimizer import build_optimizer
 from gausstwin.gaussian.parameters import GaussianParameters
 from gausstwin.reconstruction.camera import CameraIntrinsics, CameraView, quaternion_to_rotation
 from gausstwin.reconstruction.colmap import load_colmap_model
+from gausstwin.reconstruction.dataset import load_colmap_scene
+from gausstwin.reconstruction.initialization import initialize_gaussians
 from gausstwin.reconstruction.renderer import render_view
-from gausstwin.reconstruction.trainer import load_checkpoint, save_checkpoint
+from gausstwin.reconstruction.trainer import load_checkpoint, optimization_step, save_checkpoint
+
+FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "3dgs"
+
+
+def _materialize_fixture(destination: Path) -> Path:
+    """Turn the checked-in JSON fixture into COLMAP's three binary sparse files."""
+    spec = json.loads((FIXTURE_ROOT / "scene.json").read_text(encoding="utf-8"))
+    sparse_root = destination / "sparse" / "0"
+    images_root = destination / "images"
+    sparse_root.mkdir(parents=True)
+    images_root.mkdir()
+    shutil.copy2(FIXTURE_ROOT / "images" / "frame.ppm", images_root / "frame.ppm")
+    camera = spec["camera"]
+    image = spec["image"]
+    points = spec["points"]
+    (sparse_root / "cameras.bin").write_bytes(
+        struct.pack(
+            "<QIiQQ" + "d" * len(camera["params"]),
+            1,
+            camera["id"],
+            camera["model_id"],
+            camera["width"],
+            camera["height"],
+            *camera["params"],
+        )
+    )
+    (sparse_root / "images.bin").write_bytes(
+        struct.pack("<QIdddddddI", 1, image["id"], *image["qvec"], *image["tvec"], image["camera_id"])
+        + image["name"].encode("utf-8")
+        + b"\x00"
+        + struct.pack("<Q", 0)
+    )
+    point_records = bytearray(struct.pack("<Q", len(points)))
+    for point in points:
+        point_records.extend(
+            struct.pack("<QdddBBBdQ", point["id"], *point["xyz"], *point["rgb"], point["error"], 0)
+        )
+    (sparse_root / "points3D.bin").write_bytes(point_records)
+    return destination
 
 
 class ReconstructionTests(unittest.TestCase):
@@ -89,6 +132,46 @@ class ReconstructionTests(unittest.TestCase):
             render, alpha = render_view(gaussians, view, "cpu")
         self.assertEqual(tuple(render.shape), (6, 8, 3))
         self.assertEqual(tuple(alpha.shape), (6, 8, 1))
+
+    def test_minimal_3dgs_training_contract(self):
+        """CPU contract: real COLMAP/init/optimizer/checkpoint, mocked gsplat only."""
+        with tempfile.TemporaryDirectory() as directory:
+            scene = load_colmap_scene(_materialize_fixture(Path(directory)))
+            self.assertEqual(len(scene.views), 1)
+            self.assertEqual(len(scene.points), 2)
+            config = {
+                "reconstruction": {"max_points": 10, "initial_scale": 0.1, "initial_opacity": 0.1},
+                "training": {"loss": {"l1_weight": 0.8, "ssim_weight": 0.2}},
+            }
+            gaussians = initialize_gaussians(scene, config, device="cpu")
+            optimizer = build_optimizer(
+                gaussians,
+                {"means": 1e-3, "scales": 1e-3, "rotations": 1e-3, "opacities": 1e-3, "colors": 1e-2},
+            )
+            target = torch.zeros((8, 8, 3), dtype=torch.float32)
+            colors_before = gaussians.color_logits.detach().clone()
+
+            def mock_renderer(parameters, view, device):
+                self.assertEqual(device, "cpu")
+                self.assertEqual((view.intrinsics.width, view.intrinsics.height), (8, 8))
+                rgb = parameters.colors().mean(dim=0).view(1, 1, 3).expand(8, 8, 3)
+                return rgb, torch.ones((8, 8, 1), dtype=rgb.dtype)
+
+            prediction, loss = optimization_step(
+                gaussians, optimizer, scene.views[0], target, "cpu", config["training"], mock_renderer
+            )
+            self.assertEqual(tuple(prediction.shape), (8, 8, 3))
+            self.assertTrue(torch.isfinite(loss))
+            self.assertFalse(torch.equal(colors_before, gaussians.color_logits.detach()))
+
+            checkpoint_path = Path(directory) / "integration.pt"
+            save_checkpoint(checkpoint_path, gaussians, optimizer, 1, {"training_loss": loss.item()}, config)
+            means_after_step = gaussians.means.detach().clone()
+            with torch.no_grad():
+                gaussians.means.add_(1.0)
+            restored = load_checkpoint(checkpoint_path, gaussians, optimizer)
+            self.assertEqual(restored["iteration"], 1)
+            self.assertTrue(torch.allclose(gaussians.means, means_after_step))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import torch
 
@@ -80,6 +80,33 @@ def _save_image(path: Path, image: torch.Tensor) -> None:
     Image.fromarray(pixels, mode="RGB").save(path)
 
 
+def optimization_step(
+    gaussians: GaussianParameters,
+    optimizer: torch.optim.Optimizer,
+    view,
+    target: torch.Tensor,
+    device: str | torch.device,
+    learning_config: dict[str, Any],
+    renderer: Callable = render_view,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Run one differentiable RGB optimization step against a renderer boundary.
+
+    Production passes :func:`render_view`, which invokes CUDA-only gsplat. Tests can
+    provide a small differentiable renderer to validate training mechanics on CPU.
+    """
+    optimizer.zero_grad(set_to_none=True)
+    prediction, _ = renderer(gaussians, view, device)
+    loss = photometric_loss(
+        prediction,
+        target,
+        learning_config["loss"]["l1_weight"],
+        learning_config["loss"]["ssim_weight"],
+    )
+    loss.backward()
+    optimizer.step()
+    return prediction.detach(), loss.detach()
+
+
 class ThreeDGSTrainer:
     """No-densification baseline trainer intended for a single T4 device."""
 
@@ -131,16 +158,14 @@ class ThreeDGSTrainer:
         for iteration in range(1, iterations + 1):
             view = self.train_views[(iteration - 1) % len(self.train_views)]
             target = self._target(view)
-            self.optimizer.zero_grad(set_to_none=True)
-            prediction, _ = render_view(self.gaussians, view, self.device)
-            loss = photometric_loss(
-                prediction,
+            prediction, loss = optimization_step(
+                self.gaussians,
+                self.optimizer,
+                view,
                 target,
-                self.training["loss"]["l1_weight"],
-                self.training["loss"]["ssim_weight"],
+                self.device,
+                self.training,
             )
-            loss.backward()
-            self.optimizer.step()
             last_loss = float(loss.detach().item())
             self.peak_memory_bytes = max(self.peak_memory_bytes, torch.cuda.max_memory_allocated(self.device))
             if iteration % render_interval == 0 or iteration == iterations:
